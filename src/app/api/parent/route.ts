@@ -66,6 +66,12 @@ export async function POST(req: NextRequest) {
         return await addRoutine(me, body);
       case "updateRoutine":
         return await updateRoutine(me, body);
+      case "removeSticker":
+        return await dbCall(
+          "select public.remove_sticker($1, $2, $3, $4)",
+          [me.id, body.stickerId, body.mode, str(body.reason, 40)],
+          isUuid(body.stickerId) && (body.mode === "redo" || body.mode === "remove"),
+        );
       case "addQuiz":
         return await saveQuiz(me, body, null);
       case "updateQuiz":
@@ -123,8 +129,11 @@ async function login(req: NextRequest, body: Body) {
 }
 
 async function familyData(me: ParentProfile) {
-  const [fam, kids, routines, pending, coupons, quizzes] = await Promise.all([
-    queryOne<{ name: string }>("select name from families where id = $1", [me.family_id]),
+  const [fam, kids, routines, pending, coupons, quizzes, stickers] = await Promise.all([
+    queryOne<{ name: string; today: string }>(
+      "select name, to_char((now() at time zone timezone)::date, 'YYYY-MM-DD') as today from families where id = $1",
+      [me.family_id],
+    ),
     query("select id, name, avatar, view_token from kids where family_id = $1 order by created_at", [me.family_id]),
     query(
       `select r.id, r.kid_id, r.name, r.emoji, r.sort_no, r.active from routines r
@@ -146,16 +155,25 @@ async function familyData(me: ParentProfile) {
          join kids k on k.id = z.kid_id where k.family_id = $1 and z.active order by z.sort_no, z.created_at`,
       [me.family_id],
     ),
+    // 지금 채우는 판의 스티커만(여기서만 뺄 수 있음)
+    query(
+      `select st.id, st.kid_id, st.slot_no, st.kind, to_char(st.date, 'YYYY-MM-DD') as date, st.awarded_role, st.note
+         from stickers st join kids k on k.id = st.kid_id
+        where k.family_id = $1 and st.board_id = k.current_board_id order by st.slot_no`,
+      [me.family_id],
+    ),
   ]);
   return NextResponse.json({
     ok: true,
     me: { id: me.id, role: me.role, login_id: me.login_id, family_id: me.family_id },
     familyName: fam?.name ?? "",
+    today: fam?.today ?? "",
     kids,
     routines,
     pending,
     coupons,
     quizzes,
+    stickers,
   });
 }
 

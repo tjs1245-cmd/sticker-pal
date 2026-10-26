@@ -173,8 +173,9 @@ function TodayTab({
   let message = `${view.kid.name}아, 오늘도 해볼까?`;
   if (total === 0) message = "부모님이 루틴을 만들어 주면 시작할 수 있어요!";
   else if (status === "pending") message = "두근두근… 기다리는 중이야!";
-  else if (status === "approved") message = "오늘 스티커 완료! 내일 또 만나요 🌙";
-  else if (status === "rejected") message = "조금만 더 해볼까? 💪";
+  else if (status === "approved")
+    message = view.submission?.hasSticker === false ? "오늘은 여기까지! 내일 또 만나요 🌙" : "오늘 스티커 완료! 내일 또 만나요 🌙";
+  else if (status === "rejected" || status === "cancelled") message = "조금만 더 해볼까? 💪";
   else if (done > 0) message = `좋아! ${total - done}개만 더!`;
 
   return (
@@ -218,7 +219,7 @@ function TodayTab({
             animate={{ opacity: 1, scale: 1 }}
             className="rounded-3xl bg-green-100 px-4 py-4 text-center text-xl shadow"
           >
-            ✅ 오늘 스티커를 받았어요!
+            {view.submission?.hasSticker === false ? "✅ 오늘 루틴은 끝났어요!" : "✅ 오늘 스티커를 받았어요!"}
           </motion.div>
         )}
       </AnimatePresence>

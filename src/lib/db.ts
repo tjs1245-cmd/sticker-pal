@@ -65,6 +65,9 @@ export function errorCode(e: unknown): string {
     "invalid_name",
     "invalid_quiz",
     "invalid_answer",
+    "invalid_mode",
+    "cannot_redo",
+    "board_closed",
   ];
   for (const k of known) if (msg.includes(k)) return k;
   const code = (e as { code?: string })?.code;

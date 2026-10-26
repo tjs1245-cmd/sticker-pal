@@ -19,13 +19,25 @@ export type KidView = {
   today: string;
   needsTheme: boolean;
   routines: RoutineView[];
-  submission: { status: "pending" | "approved" | "rejected" | "cancelled"; note?: string | null } | null;
+  submission: {
+    status: "pending" | "approved" | "rejected" | "cancelled";
+    note?: string | null;
+    /** 오늘 받은 루틴 스티커가 있는지(승인됐지만 스티커만 뺀 날은 false) */
+    hasSticker?: boolean;
+  } | null;
   board: { themeId: string; size: number; boardNo: number } | null;
   stickers: StickerView[];
   coupons: { id: string; title: string; used: boolean }[];
   /** 오늘의 문제(정답은 들어 있지 않음). 문제가 없으면 null */
   quiz?: { id: string; question: string; kind: "choice" | "short"; options: string[] | null; solved: boolean } | null;
-  lastSticker?: { id: string; slot: number; kind: "routine" | "bonus"; role: Role | null; note?: string | null } | null;
+  lastSticker?: {
+    id: string;
+    slot: number;
+    kind: "routine" | "bonus";
+    role: Role | null;
+    note?: string | null;
+    createdAt?: string;
+  } | null;
 };
 
 export type Celebration = {

@@ -140,6 +140,23 @@ create table if not exists public.coupons (
 );
 create index if not exists coupons_kid_idx on public.coupons (kid_id);
 
+-- 스티커를 뺀 기록(누가, 언제, 어떻게, 왜). 아이 화면에는 보이지 않습니다.
+create table if not exists public.sticker_removals (
+  id            uuid primary key default gen_random_uuid(),
+  kid_id        uuid not null references public.kids(id) on delete cascade,
+  board_id      uuid,
+  slot_no       int  not null,
+  kind          text not null,
+  sticker_date  date not null,
+  awarded_role  text,
+  note          text,
+  mode          text not null check (mode in ('redo', 'remove')),
+  reason        text,
+  removed_by    uuid references public.profiles(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists sticker_removals_kid_idx on public.sticker_removals (kid_id, created_at desc);
+
 -- 부모가 내는 문제. 아이는 하루에 한 문제를 풀고, 푼 문제는 "오늘의 루틴 한 칸"으로 계산됩니다.
 create table if not exists public.quizzes (
   id          uuid primary key default gen_random_uuid(),
@@ -303,7 +320,12 @@ begin
       where r.kid_id = k.id and r.active
     ),
     'submission', (
-      select jsonb_build_object('status', s.status, 'note', s.note)
+      select jsonb_build_object(
+        'status', s.status, 'note', s.note,
+        -- 승인됐는데 스티커가 빠진 날(스티커만 빼기)을 화면이 구분하는 데 씁니다.
+        'hasSticker', exists (select 1 from public.stickers st
+                              where st.kid_id = k.id and st.date = today and st.kind = 'routine')
+      )
       from public.submissions s
       where s.kid_id = k.id and s.date = today
       order by s.created_at desc limit 1
@@ -337,7 +359,7 @@ begin
     -- 가장 최근에 받은 스티커(판이 끝나 비워져도 남음). 아이 화면이 새 스티커를 알아채는 데 씁니다.
     'lastSticker', (
       select jsonb_build_object('id', st.id, 'slot', st.slot_no, 'kind', st.kind,
-                                'role', st.awarded_role, 'note', st.note)
+                                'role', st.awarded_role, 'note', st.note, 'createdAt', st.created_at)
       from public.stickers st where st.kid_id = k.id
       order by st.created_at desc limit 1
     )
@@ -520,6 +542,48 @@ begin
     raise exception 'forbidden';
   end if;
   return public._award_sticker(p_kid, 'bonus', public.kid_today(p_kid), p_note, null, me.id, me.role);
+end $$;
+
+-- 스티커 빼기. 지금 채우는 판의 스티커만 뺄 수 있습니다(쿠폰이 나간 지난 판은 건드리지 않음).
+--   p_mode = 'redo'   : 오늘 받은 루틴 스티커를 빼고, 오늘 승인을 취소해 아이가 다시 할 수 있게 함(실수로 승인했을 때)
+--   p_mode = 'remove' : 스티커만 빼고 그날은 그대로 완료로 둠(보너스 포함)
+create or replace function public.remove_sticker(
+  p_profile uuid, p_sticker uuid, p_mode text, p_reason text default null
+) returns void
+language plpgsql as $$
+declare me public.profiles; st public.stickers; k public.kids; today date;
+begin
+  me := public._profile(p_profile);
+  if p_mode not in ('redo', 'remove') then raise exception 'invalid_mode'; end if;
+  select * into st from public.stickers where id = p_sticker for update;
+  if not found then raise exception 'not_found'; end if;
+  select * into k from public.kids where id = st.kid_id for update;
+  if k.family_id <> me.family_id then raise exception 'forbidden'; end if;
+  if st.board_id is distinct from k.current_board_id then raise exception 'board_closed'; end if;
+
+  today := public.kid_today(k.id);
+  if p_mode = 'redo' and (st.kind <> 'routine' or st.date <> today) then
+    raise exception 'cannot_redo';
+  end if;
+
+  insert into public.sticker_removals
+    (kid_id, board_id, slot_no, kind, sticker_date, awarded_role, note, mode, reason, removed_by)
+  values (st.kid_id, st.board_id, st.slot_no, st.kind, st.date, st.awarded_role, st.note,
+          p_mode, nullif(trim(p_reason), ''), me.id);
+
+  delete from public.stickers where id = st.id;
+
+  -- 빈 번호를 메워 번호를 이어 붙입니다. (unique 충돌을 피하려고 두 번에 나눠 옮김)
+  update public.stickers set slot_no = slot_no + 100000 where board_id = st.board_id and slot_no > st.slot_no;
+  update public.stickers set slot_no = slot_no - 100001 where board_id = st.board_id and slot_no > 100000;
+
+  if p_mode = 'redo' then
+    update public.submissions
+       set status = 'cancelled', decided_by = me.id, decided_at = now()
+     where kid_id = st.kid_id and date = st.date and status = 'approved';
+    delete from public.daily_checks where kid_id = st.kid_id and date = st.date;
+    delete from public.quiz_attempts where kid_id = st.kid_id and date = st.date;
+  end if;
 end $$;
 
 create or replace function public.add_kid(p_profile uuid, p_name text) returns uuid

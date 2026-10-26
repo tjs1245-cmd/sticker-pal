@@ -37,6 +37,12 @@ export function errorMessage(code: string | undefined): string {
       return "현재 비밀번호가 맞지 않아요.";
     case "weak_password":
       return "비밀번호는 6자 이상이어야 해요.";
+    case "cannot_redo":
+      return "오늘 받은 루틴 스티커만 다시 하게 할 수 있어요. '스티커만 빼기'를 써 주세요.";
+    case "board_closed":
+      return "쿠폰이 나간 지난 판의 스티커는 뺄 수 없어요.";
+    case "not_found":
+      return "이미 없어진 스티커예요. 화면을 새로고침해 주세요.";
     case "locked":
       return "지금은 바꿀 수 없어요.";
     case "network":

@@ -6,12 +6,13 @@ import { post } from "@/lib/apiClient";
 import ApprovalsTab from "./ApprovalsTab";
 import CouponsTab from "./CouponsTab";
 import QuizzesTab from "./QuizzesTab";
+import StickersTab from "./StickersTab";
 import RoutinesTab from "./RoutinesTab";
 import SettingsTab from "./SettingsTab";
 import { ui } from "./ui";
 import { useFamily } from "./useFamily";
 
-type Tab = "approvals" | "routines" | "quizzes" | "coupons" | "settings";
+type Tab = "approvals" | "routines" | "quizzes" | "stickers" | "coupons" | "settings";
 
 export default function ParentApp() {
   const [session, setSession] = useState<"loading" | "out" | "in">("loading");
@@ -127,6 +128,7 @@ function Dashboard({ onLoggedOut }: { onLoggedOut: () => void }) {
     ["approvals", pendingCount ? `승인함 (${pendingCount})` : "승인함"],
     ["routines", "루틴"],
     ["quizzes", "문제"],
+    ["stickers", "스티커"],
     ["coupons", "쿠폰"],
     ["settings", "설정"],
   ];
@@ -179,6 +181,7 @@ function Dashboard({ onLoggedOut }: { onLoggedOut: () => void }) {
       {tab === "approvals" && <ApprovalsTab data={data} kid={kid} refresh={refresh} />}
       {tab === "routines" && kid && <RoutinesTab data={data} kid={kid} refresh={refresh} />}
       {tab === "quizzes" && kid && <QuizzesTab data={data} kid={kid} refresh={refresh} />}
+      {tab === "stickers" && kid && <StickersTab data={data} kid={kid} refresh={refresh} />}
       {tab === "coupons" && kid && <CouponsTab data={data} kid={kid} refresh={refresh} />}
       {tab === "settings" && <SettingsTab data={data} refresh={refresh} onLoggedOut={onLoggedOut} />}
       {tab !== "approvals" && tab !== "settings" && !kid && <p className="text-center opacity-70">아이가 없어요.</p>}

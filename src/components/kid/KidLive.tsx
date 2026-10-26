@@ -39,11 +39,17 @@ export default function KidLive({ code }: { code: string }) {
   const apply = useCallback(
     (next: KidView) => {
       const last = next.lastSticker;
+      // seen: 지금까지 본 가장 최근 스티커의 받은 시각(ISO). "0"=첫 방문(스티커 없음), null=처음 연 기기.
+      // 예전 버전은 스티커 id 를 저장했으므로 그 형식도 받아 줍니다.
       const seen = readSeen(token);
-      if (!last && seen === null) writeSeen(token, "0"); // 첫 방문 표시(이후 첫 스티커는 연출)
-      if (last && last.id !== seen) {
-        // 처음 열었을 때(seen 없음)는 연출 없이 현재 상태만 기록합니다.
-        if (seen !== null) {
+      if (!last && seen === null) writeSeen(token, "0");
+      if (last) {
+        const stamp = last.createdAt ?? last.id;
+        const legacy = seen !== null && seen !== "0" && !/^\d{4}-\d{2}-\d{2}T/.test(seen);
+        // 스티커를 '뺀' 경우 직전 스티커가 lastSticker 가 되는데, 그건 본 것보다 오래되어 새것이 아닙니다.
+        const isNew =
+          seen === null ? false : seen === "0" ? true : legacy ? last.id !== seen : Date.parse(stamp) > Date.parse(seen);
+        if (seen !== null && isNew) {
           const couponUp = prevCoupons.current !== null && next.coupons.length > prevCoupons.current;
           seq.current += 1;
           setCelebration({
@@ -55,7 +61,8 @@ export default function KidLive({ code }: { code: string }) {
             bonus: last.kind === "bonus",
           });
         }
-        writeSeen(token, last.id);
+        // 더 최근 것으로만 갱신(뒤로 가지 않음)
+        if (seen === null || isNew || legacy) writeSeen(token, stamp);
       }
       prevCoupons.current = next.coupons.length;
       setView(next);

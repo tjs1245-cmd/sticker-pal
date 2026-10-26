@@ -16,11 +16,23 @@ export type Quiz = {
   /** 객관식: 정답 보기 번호(0부터), 주관식: 정답들을 | 로 구분 */
   answer: string;
 };
-export type Me ={ id: string; role: "mom" | "dad"; login_id: string; family_id: string };
+export type StickerRow = {
+  id: string;
+  kid_id: string;
+  slot_no: number;
+  kind: "routine" | "bonus";
+  date: string;
+  awarded_role: "mom" | "dad" | null;
+  note: string | null;
+};
+export type Me = { id: string; role: "mom" | "dad"; login_id: string; family_id: string };
 
 export type FamilyData = {
   me: Me;
   familyName: string;
+  /** 가족 시간대 기준 오늘 (YYYY-MM-DD) */
+  today: string;
+  stickers: StickerRow[];
   kids: Kid[];
   routines: Routine[];
   pending: PendingSub[];
