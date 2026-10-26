@@ -7,7 +7,16 @@ export type Kid = { id: string; name: string; avatar: string; view_token: string
 export type Routine = { id: string; kid_id: string; name: string; emoji: string; sort_no: number; active: boolean };
 export type PendingSub = { id: string; kid_id: string; date: string; created_at: string };
 export type Coupon = { id: string; kid_id: string; title: string; used_at: string | null; created_at: string };
-export type Me = { id: string; role: "mom" | "dad"; login_id: string; family_id: string };
+export type Quiz = {
+  id: string;
+  kid_id: string;
+  question: string;
+  kind: "choice" | "short";
+  options: string[] | null;
+  /** 객관식: 정답 보기 번호(0부터), 주관식: 정답들을 | 로 구분 */
+  answer: string;
+};
+export type Me ={ id: string; role: "mom" | "dad"; login_id: string; family_id: string };
 
 export type FamilyData = {
   me: Me;
@@ -16,6 +25,7 @@ export type FamilyData = {
   routines: Routine[];
   pending: PendingSub[];
   coupons: Coupon[];
+  quizzes: Quiz[];
 };
 
 /** 로그인한 부모의 가족 데이터. 8초마다 다시 읽습니다(승인함 갱신). 세션이 끝나면 onExpired 를 부릅니다. */

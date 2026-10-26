@@ -5,12 +5,13 @@ import { useEffect, useState } from "react";
 import { post } from "@/lib/apiClient";
 import ApprovalsTab from "./ApprovalsTab";
 import CouponsTab from "./CouponsTab";
+import QuizzesTab from "./QuizzesTab";
 import RoutinesTab from "./RoutinesTab";
 import SettingsTab from "./SettingsTab";
 import { ui } from "./ui";
 import { useFamily } from "./useFamily";
 
-type Tab = "approvals" | "routines" | "coupons" | "settings";
+type Tab = "approvals" | "routines" | "quizzes" | "coupons" | "settings";
 
 export default function ParentApp() {
   const [session, setSession] = useState<"loading" | "out" | "in">("loading");
@@ -125,6 +126,7 @@ function Dashboard({ onLoggedOut }: { onLoggedOut: () => void }) {
   const tabs: [Tab, string][] = [
     ["approvals", pendingCount ? `승인함 (${pendingCount})` : "승인함"],
     ["routines", "루틴"],
+    ["quizzes", "문제"],
     ["coupons", "쿠폰"],
     ["settings", "설정"],
   ];
@@ -167,7 +169,7 @@ function Dashboard({ onLoggedOut }: { onLoggedOut: () => void }) {
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`flex-1 rounded-xl px-1 py-2 text-base ${tab === id ? "bg-violet-500 text-white shadow" : ""}`}
+            className={`flex-1 rounded-xl px-1 py-2 text-sm sm:text-base ${tab === id ? "bg-violet-500 text-white shadow" : ""}`}
           >
             {label}
           </button>
@@ -176,6 +178,7 @@ function Dashboard({ onLoggedOut }: { onLoggedOut: () => void }) {
 
       {tab === "approvals" && <ApprovalsTab data={data} kid={kid} refresh={refresh} />}
       {tab === "routines" && kid && <RoutinesTab data={data} kid={kid} refresh={refresh} />}
+      {tab === "quizzes" && kid && <QuizzesTab data={data} kid={kid} refresh={refresh} />}
       {tab === "coupons" && kid && <CouponsTab data={data} kid={kid} refresh={refresh} />}
       {tab === "settings" && <SettingsTab data={data} refresh={refresh} onLoggedOut={onLoggedOut} />}
       {tab !== "approvals" && tab !== "settings" && !kid && <p className="text-center opacity-70">아이가 없어요.</p>}

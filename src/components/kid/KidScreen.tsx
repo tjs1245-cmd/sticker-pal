@@ -14,13 +14,15 @@ type Props = {
   view: KidView;
   onToggle: (routineId: string) => void;
   onPickTheme: (themeId: string) => void;
+  /** 오늘의 문제 답 제출. 맞았는지 돌려줍니다. */
+  onAnswer?: (quizId: string, answer: string) => Promise<boolean>;
   celebration: Celebration | null;
   onCelebrationDone: () => void;
   /** 데모 컨트롤 등 화면 위에 얹을 것 */
   overlay?: ReactNode;
 };
 
-export default function KidScreen({ view, onToggle, onPickTheme, celebration, onCelebrationDone, overlay }: Props) {
+export default function KidScreen({ view, onToggle, onPickTheme, onAnswer, celebration, onCelebrationDone, overlay }: Props) {
   const [tab, setTab] = useState<Tab>("today");
   const theme = getTheme(view.board?.themeId);
   const unusedCoupons = view.coupons.filter((c) => !c.used).length;
@@ -54,7 +56,7 @@ export default function KidScreen({ view, onToggle, onPickTheme, celebration, on
             transition={{ duration: 0.18 }}
             className="flex flex-1 flex-col gap-4"
           >
-            {tab === "today" && <TodayTab view={view} onToggle={onToggle} onPickTheme={onPickTheme} />}
+            {tab === "today" && <TodayTab view={view} onToggle={onToggle} onPickTheme={onPickTheme} onAnswer={onAnswer} />}
             {tab === "board" && <BoardTab view={view} onPickTheme={onPickTheme} />}
             {tab === "coupons" && <CouponsTab view={view} />}
           </motion.main>
@@ -145,13 +147,17 @@ function TodayTab({
   view,
   onToggle,
   onPickTheme,
+  onAnswer,
 }: {
   view: KidView;
   onToggle: (id: string) => void;
   onPickTheme: (id: string) => void;
+  onAnswer?: (quizId: string, answer: string) => Promise<boolean>;
 }) {
-  const total = view.routines.length;
-  const done = view.routines.filter((r) => r.done).length;
+  const quiz = onAnswer ? (view.quiz ?? null) : null;
+  // 오늘의 문제도 루틴 한 칸으로 셉니다.
+  const total = view.routines.length + (quiz ? 1 : 0);
+  const done = view.routines.filter((r) => r.done).length + (quiz?.solved ? 1 : 0);
   const status = view.submission?.status;
   const locked = status === "pending" || status === "approved";
 
@@ -202,6 +208,8 @@ function TodayTab({
         ))}
       </ul>
 
+      {quiz && onAnswer && <QuizCard key={quiz.id} quiz={quiz} locked={locked} onAnswer={onAnswer} />}
+
       <AnimatePresence>
         {status === "pending" && <PendingLetter />}
         {status === "approved" && (
@@ -215,6 +223,124 @@ function TodayTab({
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function QuizCard({
+  quiz,
+  locked,
+  onAnswer,
+}: {
+  quiz: NonNullable<KidView["quiz"]>;
+  locked: boolean;
+  onAnswer: (quizId: string, answer: string) => Promise<boolean>;
+}) {
+  const [text, setText] = useState("");
+  const [result, setResult] = useState<"idle" | "wrong">("idle");
+  const [wrongCount, setWrongCount] = useState(0); // 틀릴 때마다 흔들림 애니메이션을 다시 재생
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  async function submit(answer: string) {
+    if (busy || locked || quiz.solved || !answer.trim()) return;
+    setBusy(true);
+    const ok = await onAnswer(quiz.id, answer);
+    setBusy(false);
+    if (ok) {
+      setResult("idle");
+      if (ref.current) {
+        const r = ref.current.getBoundingClientRect();
+        burst({ x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight });
+      }
+    } else {
+      setResult("wrong");
+      setWrongCount((n) => n + 1);
+      setText("");
+    }
+  }
+
+  if (quiz.solved) {
+    return (
+      <motion.div
+        ref={ref}
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="flex items-center gap-3 rounded-3xl border-4 border-green-400 bg-green-100 px-5 py-4 shadow-md"
+      >
+        <span className="text-5xl">🧠</span>
+        <div className="flex-1">
+          <p className="text-lg opacity-70">오늘의 문제</p>
+          <p className="text-xl">{quiz.question}</p>
+        </div>
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-green-500 text-2xl text-white">✓</span>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.section
+      ref={ref}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`flex flex-col gap-3 rounded-3xl border-4 border-violet-300 bg-white px-5 py-4 shadow-md ${locked ? "opacity-80" : ""}`}
+    >
+      <p className="text-lg opacity-70">🧠 오늘의 문제</p>
+      <p className="text-2xl leading-snug">{quiz.question}</p>
+
+      {quiz.kind === "choice" ? (
+        <div className="flex flex-col gap-2">
+          {(quiz.options ?? []).map((o, i) => (
+            <motion.button
+              key={i}
+              type="button"
+              disabled={busy || locked}
+              onClick={() => submit(String(i))}
+              whileTap={{ scale: 0.96 }}
+              className="flex min-h-14 items-center gap-3 rounded-2xl bg-violet-100 px-4 py-2 text-left text-xl shadow disabled:opacity-60"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-violet-400 text-white">{i + 1}</span>
+              {o}
+            </motion.button>
+          ))}
+        </div>
+      ) : (
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit(text);
+          }}
+        >
+          <input
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setResult("idle");
+            }}
+            maxLength={100}
+            disabled={busy || locked}
+            aria-label="정답 입력"
+            placeholder="정답을 써 줘"
+            className="min-w-0 flex-1 rounded-2xl border-4 border-violet-200 px-4 py-3 text-xl outline-none focus:border-violet-400"
+          />
+          <button type="submit" disabled={busy || locked || !text.trim()} className="rounded-2xl bg-violet-500 px-5 text-xl text-white shadow disabled:opacity-40">
+            확인!
+          </button>
+        </form>
+      )}
+
+      {result === "wrong" && (
+        <motion.p
+          key={wrongCount}
+          role="status"
+          animate={{ x: [0, -8, 8, -6, 6, 0] }}
+          transition={{ duration: 0.4 }}
+          className="rounded-2xl bg-yellow-100 px-4 py-2 text-center text-xl"
+        >
+          아쉬워! 다시 해볼까? 💪
+        </motion.p>
+      )}
+    </motion.section>
   );
 }
 

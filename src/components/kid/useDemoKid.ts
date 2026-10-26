@@ -4,11 +4,14 @@ import { useCallback, useMemo, useState } from "react";
 import type { Celebration, KidView, Role, StickerView } from "./types";
 
 const BOARD_SIZE = 30;
+// 데모의 오늘의 문제 (정답은 보기 번호 "1" = 2개)
+const DEMO_QUIZ = { id: "demo-quiz", question: "토끼의 귀는 몇 개일까?", options: ["1개", "2개", "3개"], answer: "1" };
 const BASE_DATE = Date.UTC(2026, 0, 5);
 
 type DemoState = {
   dayOffset: number;
   routines: { id: string; name: string; emoji: string; done: boolean }[];
+  quizSolved: boolean;
   status: "none" | "pending" | "approved" | "rejected";
   rejectNote: string | null;
   themeId: string | null;
@@ -27,6 +30,7 @@ const initial: DemoState = {
     { id: "r2", name: "장난감 정리", emoji: "🧸", done: false },
     { id: "r3", name: "책 읽기", emoji: "📚", done: false },
   ],
+  quizSolved: false,
   status: "none",
   rejectNote: null,
   themeId: null,
@@ -73,10 +77,24 @@ export function useDemoKid() {
     setS((cur) => {
       if (cur.status === "pending" || cur.status === "approved" || !cur.themeId) return cur;
       const routines = cur.routines.map((r) => (r.id === id ? { ...r, done: !r.done } : r));
-      const allDone = routines.length > 0 && routines.every((r) => r.done);
+      const allDone = routines.length > 0 && routines.every((r) => r.done) && cur.quizSolved;
       return { ...cur, routines, status: allDone ? "pending" : cur.status, rejectNote: allDone ? null : cur.rejectNote };
     });
   }, []);
+
+  const answer = useCallback(
+    async (_quizId: string, value: string): Promise<boolean> => {
+      const correct = value === DEMO_QUIZ.answer;
+      if (!correct) return false;
+      setS((cur) => {
+        if (!cur.themeId || cur.status === "pending" || cur.status === "approved" || cur.quizSolved) return cur;
+        const allDone = cur.routines.length > 0 && cur.routines.every((r) => r.done);
+        return { ...cur, quizSolved: true, status: allDone ? "pending" : cur.status, rejectNote: allDone ? null : cur.rejectNote };
+      });
+      return true;
+    },
+    [],
+  );
 
   const pickTheme = useCallback((themeId: string) => {
     setS((cur) => (cur.themeId || cur.boardFull ? cur : { ...cur, themeId, boardNo: cur.boardNo + 1 }));
@@ -93,6 +111,7 @@ export function useDemoKid() {
             ...cur,
             status: "rejected",
             rejectNote: note?.trim() || null,
+            quizSolved: false,
             routines: cur.routines.map((r) => ({ ...r, done: false })),
           }
         : cur,
@@ -107,6 +126,7 @@ export function useDemoKid() {
     setS((cur) => ({
       ...cur,
       dayOffset: cur.dayOffset + 1,
+      quizSolved: false,
       status: "none",
       rejectNote: null,
       routines: cur.routines.map((r) => ({ ...r, done: false })),
@@ -159,6 +179,7 @@ export function useDemoKid() {
       today: dateOf(s.dayOffset),
       needsTheme: !s.themeId && !s.boardFull,
       routines: s.routines,
+      quiz: { id: DEMO_QUIZ.id, question: DEMO_QUIZ.question, kind: "choice", options: DEMO_QUIZ.options, solved: s.quizSolved },
       submission:
         s.status === "none" ? null : { status: s.status, note: s.status === "rejected" ? s.rejectNote : null },
       board: s.themeId ? { themeId: s.themeId, size: BOARD_SIZE, boardNo: s.boardNo } : null,
@@ -172,6 +193,6 @@ export function useDemoKid() {
     view,
     celebration: s.celebration,
     canAct: { pending: s.status === "pending", hasBoard: !!s.themeId && !s.boardFull, coupons: s.coupons },
-    actions: { toggle, pickTheme, approve, reject, bonus, nextDay, fill29, useCoupon, reset, finishCelebration },
+    actions: { toggle, answer, pickTheme, approve, reject, bonus, nextDay, fill29, useCoupon, reset, finishCelebration },
   };
 }

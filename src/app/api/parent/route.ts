@@ -66,6 +66,10 @@ export async function POST(req: NextRequest) {
         return await addRoutine(me, body);
       case "updateRoutine":
         return await updateRoutine(me, body);
+      case "addQuiz":
+        return await saveQuiz(me, body, null);
+      case "updateQuiz":
+        return await saveQuiz(me, body, isUuid(body.id) ? body.id : "invalid");
       case "reorderRoutines":
         return await reorderRoutines(me, body);
       case "useCoupon":
@@ -119,7 +123,7 @@ async function login(req: NextRequest, body: Body) {
 }
 
 async function familyData(me: ParentProfile) {
-  const [fam, kids, routines, pending, coupons] = await Promise.all([
+  const [fam, kids, routines, pending, coupons, quizzes] = await Promise.all([
     queryOne<{ name: string }>("select name from families where id = $1", [me.family_id]),
     query("select id, name, avatar, view_token from kids where family_id = $1 order by created_at", [me.family_id]),
     query(
@@ -137,6 +141,11 @@ async function familyData(me: ParentProfile) {
          join kids k on k.id = c.kid_id where k.family_id = $1 order by c.created_at desc`,
       [me.family_id],
     ),
+    query(
+      `select z.id, z.kid_id, z.question, z.kind, z.options, z.answer from quizzes z
+         join kids k on k.id = z.kid_id where k.family_id = $1 and z.active order by z.sort_no, z.created_at`,
+      [me.family_id],
+    ),
   ]);
   return NextResponse.json({
     ok: true,
@@ -146,7 +155,62 @@ async function familyData(me: ParentProfile) {
     routines,
     pending,
     coupons,
+    quizzes,
   });
+}
+
+/** 문제 만들기(quizId=null) / 고치기 / 삭제(active:false). 검증은 여기서, 채점 규칙은 DB 함수에서 합니다. */
+async function saveQuiz(me: ParentProfile, body: Body, quizId: string | null) {
+  if (quizId === "invalid") return fail("invalid_input");
+
+  if (quizId && body.active === false) {
+    const rows = await query(
+      `update quizzes z set active = false from kids k
+         where z.id = $1 and k.id = z.kid_id and k.family_id = $2 returning z.id`,
+      [quizId, me.family_id],
+    );
+    return rows.length ? NextResponse.json({ ok: true }) : fail("forbidden", 403);
+  }
+
+  const question = str(body.question, 200);
+  const kind = body.kind === "choice" || body.kind === "short" ? body.kind : null;
+  if (!question || !kind) return fail("invalid_input");
+
+  let options: string[] | null = null;
+  let answer = "";
+  if (kind === "choice") {
+    options = Array.isArray(body.options) ? body.options.map((o) => str(o, 40)).filter(Boolean) : [];
+    const idx = Number(body.correctIndex);
+    if (options.length < 2 || options.length > 4 || !Number.isInteger(idx) || idx < 0 || idx >= options.length) {
+      return fail("invalid_input");
+    }
+    answer = String(idx);
+  } else {
+    // 쉼표나 | 로 구분한 정답들(예: "토끼, rabbit")
+    const list = str(body.answers, 100)
+      .split(/[|,]/)
+      .map((a) => a.trim())
+      .filter(Boolean);
+    answer = list.join("|");
+    if (!answer) return fail("invalid_input");
+  }
+
+  if (quizId) {
+    const rows = await query(
+      `update quizzes z set question = $3, kind = $4, options = $5, answer = $6
+         from kids k where z.id = $1 and k.id = z.kid_id and k.family_id = $2 returning z.id`,
+      [quizId, me.family_id, question, kind, options, answer],
+    );
+    return rows.length ? NextResponse.json({ ok: true }) : fail("forbidden", 403);
+  }
+
+  if (!(await kidInFamily(me, body.kidId))) return fail("invalid_input");
+  await query(
+    `insert into quizzes (kid_id, question, kind, options, answer, sort_no)
+       values ($1, $2, $3, $4, $5, (select coalesce(max(sort_no), 0) + 1 from quizzes where kid_id = $1))`,
+    [body.kidId, question, kind, options, answer],
+  );
+  return NextResponse.json({ ok: true });
 }
 
 async function kidInFamily(me: ParentProfile, kidId: unknown): Promise<boolean> {

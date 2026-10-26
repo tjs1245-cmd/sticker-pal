@@ -37,6 +37,8 @@ export function errorMessage(code: string | undefined): string {
       return "현재 비밀번호가 맞지 않아요.";
     case "weak_password":
       return "비밀번호는 6자 이상이어야 해요.";
+    case "locked":
+      return "지금은 바꿀 수 없어요.";
     case "network":
       return "서버에 연결하지 못했어요.";
     case "not_configured":

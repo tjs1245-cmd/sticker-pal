@@ -140,6 +140,38 @@ create table if not exists public.coupons (
 );
 create index if not exists coupons_kid_idx on public.coupons (kid_id);
 
+-- 부모가 내는 문제. 아이는 하루에 한 문제를 풀고, 푼 문제는 "오늘의 루틴 한 칸"으로 계산됩니다.
+create table if not exists public.quizzes (
+  id          uuid primary key default gen_random_uuid(),
+  kid_id      uuid not null references public.kids(id) on delete cascade,
+  question    text not null check (char_length(question) between 1 and 200),
+  kind        text not null check (kind in ('choice', 'short')),
+  options     text[],                           -- 객관식 보기 2~4개
+  answer      text not null check (char_length(answer) between 1 and 100),
+              -- 객관식: 정답 보기 번호(0부터), 주관식: 인정할 정답들을 | 로 구분
+  sort_no     int  not null default 0,
+  active      boolean not null default true,    -- 삭제는 비활성화로 처리
+  created_at  timestamptz not null default now(),
+  check (kind <> 'choice' or (
+    options is not null
+    and array_length(options, 1) between 2 and 4
+    and case when answer ~ '^[0-3]$' then answer::int < array_length(options, 1) else false end
+  ))
+);
+create index if not exists quizzes_kid_idx on public.quizzes (kid_id);
+
+create table if not exists public.quiz_attempts (
+  id          uuid primary key default gen_random_uuid(),
+  kid_id      uuid not null references public.kids(id) on delete cascade,
+  quiz_id     uuid not null references public.quizzes(id) on delete cascade,
+  date        date not null,
+  correct     boolean not null,
+  created_at  timestamptz not null default now()
+);
+create unique index if not exists quiz_attempts_correct_day_uq
+  on public.quiz_attempts (kid_id, date) where correct;
+create index if not exists quiz_attempts_quiz_idx on public.quiz_attempts (quiz_id);
+
 -- ───────────────────────── 한도 트리거 ─────────────────────────
 -- 가족 최대 5개, 가족당 아이 최대 2명. advisory lock 으로 동시 요청도 막습니다.
 
@@ -292,6 +324,16 @@ begin
       ) order by c.created_at desc), '[]'::jsonb)
       from public.coupons c where c.kid_id = k.id
     ),
+    -- 오늘의 문제(정답은 절대 포함하지 않습니다)
+    'quiz', (
+      select jsonb_build_object(
+        'id', q.id, 'question', q.question, 'kind', q.kind,
+        'options', case when q.kind = 'choice' then to_jsonb(q.options) else null end,
+        'solved', exists (select 1 from public.quiz_attempts a
+                          where a.kid_id = k.id and a.date = today and a.correct)
+      )
+      from public.quizzes q where q.id = public._today_quiz(k.id, today)
+    ),
     -- 가장 최근에 받은 스티커(판이 끝나 비워져도 남음). 아이 화면이 새 스티커를 알아채는 데 씁니다.
     'lastSticker', (
       select jsonb_build_object('id', st.id, 'slot', st.slot_no, 'kind', st.kind,
@@ -314,7 +356,7 @@ end $$;
 
 create or replace function public.kid_toggle(p_token text, p_routine uuid, p_done boolean) returns jsonb
 language plpgsql as $$
-declare k public.kids; today date; total int; done_cnt int;
+declare k public.kids; today date;
 begin
   select * into k from public.kids where view_token = upper(trim(p_token)) for update;
   if not found then raise exception 'invalid_code'; end if;
@@ -334,16 +376,84 @@ begin
   values (k.id, p_routine, today, p_done)
   on conflict (routine_id, date) do update set done = excluded.done, updated_at = now();
 
-  select count(*) into total from public.routines where kid_id = k.id and active;
-  select count(*) into done_cnt
-  from public.daily_checks dc join public.routines r on r.id = dc.routine_id
-  where dc.kid_id = k.id and dc.date = today and dc.done and r.active;
+  perform public._maybe_submit(k.id, today);
+  return public._kid_view(k.id);
+end $$;
 
-  if total > 0 and done_cnt >= total then
-    insert into public.submissions (kid_id, date, status) values (k.id, today, 'pending')
+-- ───────────────────────── 오늘의 문제 ─────────────────────────
+
+-- 오늘 풀 문제: 오늘 이미 푼 문제가 있으면 그것, 없으면 가장 오래전에 푼(또는 한 번도 안 푼) 문제
+create or replace function public._today_quiz(p_kid uuid, p_today date) returns uuid
+language sql stable as $$
+  select coalesce(
+    (select a.quiz_id from public.quiz_attempts a where a.kid_id = p_kid and a.date = p_today and a.correct),
+    (select q.id from public.quizzes q
+      where q.kid_id = p_kid and q.active
+      order by (select max(a.date) from public.quiz_attempts a where a.quiz_id = q.id and a.correct) nulls first,
+               q.sort_no, q.created_at
+      limit 1)
+  )
+$$;
+
+-- 오늘 할 일(루틴 전부 + 오늘의 문제)을 다 했으면 승인 요청을 만듭니다. 루틴이 0개면 만들지 않습니다.
+create or replace function public._maybe_submit(p_kid uuid, p_today date) returns void
+language plpgsql as $$
+declare routines_cnt int; routines_done int; quiz_needed int; quiz_done int;
+begin
+  select count(*) into routines_cnt from public.routines where kid_id = p_kid and active;
+  select count(*) into routines_done
+  from public.daily_checks dc join public.routines r on r.id = dc.routine_id
+  where dc.kid_id = p_kid and dc.date = p_today and dc.done and r.active;
+  select case when public._today_quiz(p_kid, p_today) is null then 0 else 1 end into quiz_needed;
+  select case when exists (select 1 from public.quiz_attempts
+                           where kid_id = p_kid and date = p_today and correct) then 1 else 0 end into quiz_done;
+
+  if routines_cnt > 0 and routines_done + quiz_done >= routines_cnt + quiz_needed then
+    insert into public.submissions (kid_id, date, status) values (p_kid, p_today, 'pending')
     on conflict do nothing;
   end if;
-  return public._kid_view(k.id);
+end $$;
+
+-- 글자 비교용: 소문자로 바꾸고 모든 공백 제거
+create or replace function public._norm_answer(p text) returns text
+language sql immutable as $$
+  select lower(regexp_replace(coalesce(p, ''), '\s+', '', 'g'))
+$$;
+
+-- 답 제출. 채점은 여기서만 합니다(정답은 아이에게 전달되지 않음). 틀리면 얼마든지 다시 풀 수 있습니다.
+create or replace function public.kid_answer(p_token text, p_quiz uuid, p_answer text) returns jsonb
+language plpgsql as $$
+declare k public.kids; today date; q public.quizzes; ok boolean := false; picked text;
+begin
+  select * into k from public.kids where view_token = upper(trim(p_token)) for update;
+  if not found then raise exception 'invalid_code'; end if;
+  if k.current_board_id is null then raise exception 'pick_theme_first'; end if;
+  today := public.kid_today(k.id);
+  if exists (select 1 from public.submissions
+             where kid_id = k.id and date = today and status in ('pending', 'approved')) then
+    raise exception 'locked';
+  end if;
+  if p_quiz is distinct from public._today_quiz(k.id, today) then raise exception 'invalid_quiz'; end if;
+  select * into q from public.quizzes where id = p_quiz;
+
+  if exists (select 1 from public.quiz_attempts where kid_id = k.id and date = today and correct) then
+    return jsonb_build_object('correct', true, 'view', public._kid_view(k.id));  -- 이미 푼 문제
+  end if;
+
+  picked := trim(coalesce(p_answer, ''));
+  if char_length(picked) = 0 or char_length(picked) > 100 then raise exception 'invalid_answer'; end if;
+  if q.kind = 'choice' then
+    ok := picked = q.answer;
+  else
+    ok := exists (
+      select 1 from unnest(string_to_array(q.answer, '|')) as t(a)
+      where public._norm_answer(t.a) <> '' and public._norm_answer(t.a) = public._norm_answer(picked)
+    );
+  end if;
+
+  insert into public.quiz_attempts (kid_id, quiz_id, date, correct) values (k.id, q.id, today, ok);
+  if ok then perform public._maybe_submit(k.id, today); end if;
+  return jsonb_build_object('correct', ok, 'view', public._kid_view(k.id));
 end $$;
 
 create or replace function public.kid_pick_theme(p_token text, p_theme text) returns jsonb
@@ -398,6 +508,7 @@ begin
    where id = s.id;
   -- 그날 체크를 초기화해서 다시 할 수 있게 합니다.
   delete from public.daily_checks where kid_id = s.kid_id and date = s.date;
+  delete from public.quiz_attempts where kid_id = s.kid_id and date = s.date;  -- 문제도 다시 풀기
 end $$;
 
 create or replace function public.give_bonus_sticker(p_profile uuid, p_kid uuid, p_note text default null) returns jsonb

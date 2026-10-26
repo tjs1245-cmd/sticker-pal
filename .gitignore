@@ -41,5 +41,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# 로컬 도구 설정
+# local tool settings
 .claude/

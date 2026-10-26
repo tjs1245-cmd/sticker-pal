@@ -63,6 +63,8 @@ export function errorCode(e: unknown): string {
     "kid_limit_reached",
     "family_limit_reached",
     "invalid_name",
+    "invalid_quiz",
+    "invalid_answer",
   ];
   for (const k of known) if (msg.includes(k)) return k;
   const code = (e as { code?: string })?.code;

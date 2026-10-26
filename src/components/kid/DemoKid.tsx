@@ -14,6 +14,7 @@ export default function DemoKid() {
       view={view}
       onToggle={actions.toggle}
       onPickTheme={actions.pickTheme}
+      onAnswer={actions.answer}
       celebration={celebration}
       onCelebrationDone={actions.finishCelebration}
       overlay={<DemoPanel canAct={canAct} actions={actions} today={view.today} />}

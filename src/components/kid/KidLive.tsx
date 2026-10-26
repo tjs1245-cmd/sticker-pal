@@ -112,6 +112,19 @@ export default function KidLive({ code }: { code: string }) {
     [act, view],
   );
 
+  const onAnswer = useCallback(
+    async (quizId: string, answer: string): Promise<boolean> => {
+      const r = await post<{ correct: boolean; view: KidView }>("/api/kid", { action: "answer", code: token, quizId, answer });
+      if (r.ok) {
+        apply(r.view);
+        return r.correct;
+      }
+      await load(); // 잠금 등으로 거절되면 서버 상태로 되돌립니다.
+      return false;
+    },
+    [apply, load, token],
+  );
+
   const onPickTheme = useCallback((themeId: string) => act("pickTheme", { themeId }), [act]);
 
   if (error === "config") {
@@ -141,6 +154,7 @@ export default function KidLive({ code }: { code: string }) {
       view={view}
       onToggle={onToggle}
       onPickTheme={onPickTheme}
+      onAnswer={onAnswer}
       celebration={celebration}
       onCelebrationDone={() => setCelebration(null)}
       overlay={

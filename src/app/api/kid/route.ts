@@ -34,6 +34,17 @@ export async function POST(req: NextRequest) {
       const routineId = typeof body.routineId === "string" ? body.routineId : "";
       if (!UUID_RE.test(routineId) || typeof body.done !== "boolean") return fail("invalid_input");
       row = await queryOne("select public.kid_toggle($1, $2, $3) as v", [code, routineId, body.done]);
+    } else if (action === "answer") {
+      const quizId = typeof body.quizId === "string" ? body.quizId : "";
+      const answer = typeof body.answer === "string" ? body.answer.slice(0, 100) : "";
+      if (!UUID_RE.test(quizId) || !answer.trim()) return fail("invalid_input");
+      // 채점은 DB 함수가 합니다. 응답에는 맞았는지 여부와 화면 데이터만 담깁니다(정답은 담기지 않음).
+      const r = await queryOne<{ v: { correct: boolean; view: unknown } }>("select public.kid_answer($1, $2, $3) as v", [
+        code,
+        quizId,
+        answer,
+      ]);
+      return NextResponse.json({ ok: true, correct: r?.v.correct ?? false, view: r?.v.view ?? null });
     } else if (action === "pickTheme") {
       const themeId = typeof body.themeId === "string" ? body.themeId : "";
       row = await queryOne("select public.kid_pick_theme($1, $2) as v", [code, themeId]);

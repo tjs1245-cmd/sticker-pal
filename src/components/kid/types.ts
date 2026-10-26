@@ -23,6 +23,8 @@ export type KidView = {
   board: { themeId: string; size: number; boardNo: number } | null;
   stickers: StickerView[];
   coupons: { id: string; title: string; used: boolean }[];
+  /** 오늘의 문제(정답은 들어 있지 않음). 문제가 없으면 null */
+  quiz?: { id: string; question: string; kind: "choice" | "short"; options: string[] | null; solved: boolean } | null;
   lastSticker?: { id: string; slot: number; kind: "routine" | "bonus"; role: Role | null; note?: string | null } | null;
 };
 
