@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --sky-from: #bae6fd;
+  --sky-to: #fef9c3;
+  --ink: #3b2f63;
+}
+
+@theme inline {
+  --font-sans: var(--font-jua), ui-rounded, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+body {
+  min-height: 100dvh;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--sky-from) 0%, var(--sky-to) 100%) fixed;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* 떠다니는 구름/별 */
+@keyframes drift {
+  from { transform: translateX(-30vw); }
+  to   { transform: translateX(130vw); }
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.8) rotate(0deg); }
+  50%      { opacity: 1;    transform: scale(1.15) rotate(20deg); }
+}
+.bg-cloud {
+  position: absolute;
+  left: 0;
+  animation: drift var(--dur, 60s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  opacity: 0.85;
+}
+.bg-star {
+  position: absolute;
+  animation: twinkle var(--dur, 3s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-cloud, .bg-star {
+    animation: none;
+  }
+  .bg-cloud { transform: translateX(var(--static-x, 20vw)); }
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
